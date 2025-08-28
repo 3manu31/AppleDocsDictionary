@@ -31,9 +31,8 @@ export interface CacheMetadata {
 export class ApiCacheManager {
     private cacheDir: string;
     private metadataFile: string;
-    private readonly CACHE_VERSION = '1.0.0';
-    private readonly MAX_CACHE_AGE_DAYS = 7; // Cache expires after 7 days
-    private readonly MAX_CACHE_SIZE = 1000; // Maximum number of cached APIs
+    private readonly CACHE_VERSION = '1.1.0';
+    private readonly MAX_CACHE_SIZE = 5000; // Increased since we're keeping long-term
 
     constructor(context: vscode.ExtensionContext) {
         this.cacheDir = path.join(context.globalStorageUri.fsPath, 'api-cache');
@@ -119,17 +118,7 @@ export class ApiCacheManager {
 
             const cachedData: CachedApiData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
             
-            // Check if cache is still valid
-            const cacheAge = Date.now() - cachedData.cachedAt;
-            const maxAge = this.MAX_CACHE_AGE_DAYS * 24 * 60 * 60 * 1000;
-            
-            if (cacheAge > maxAge) {
-                // Cache is expired, remove it
-                fs.unlinkSync(filePath);
-                return null;
-            }
-
-            // Update access statistics
+            // Update access statistics (no expiration check)
             cachedData.lastAccessed = Date.now();
             cachedData.accessCount++;
             fs.writeFileSync(filePath, JSON.stringify(cachedData, null, 2));
@@ -202,6 +191,8 @@ export class ApiCacheManager {
         oldestCache: string;
         newestCache: string;
         mostAccessedApi?: string;
+        cacheSize: number;
+        maxCacheSize: number;
     }> {
         const metadata = this.getMetadata();
         
@@ -211,6 +202,7 @@ export class ApiCacheManager {
             let oldestTime = Date.now();
             let newestTime = 0;
             let mostAccessed = { api: '', count: 0 };
+            let apiCount = 0;
 
             for (const file of files) {
                 if (!file.endsWith('.json') || file === 'metadata.json') {
@@ -220,6 +212,7 @@ export class ApiCacheManager {
                 const filePath = path.join(this.cacheDir, file);
                 const stats = fs.statSync(filePath);
                 totalSize += stats.size;
+                apiCount++;
 
                 const cachedData: CachedApiData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
                 
@@ -240,12 +233,14 @@ export class ApiCacheManager {
             }
 
             return {
-                totalApis: metadata.totalApis,
+                totalApis: apiCount,
                 frameworks: metadata.frameworks,
                 diskUsage: `${(totalSize / 1024 / 1024).toFixed(2)} MB`,
-                oldestCache: new Date(oldestTime).toLocaleDateString(),
-                newestCache: new Date(newestTime).toLocaleDateString(),
-                mostAccessedApi: mostAccessed.api || undefined
+                oldestCache: apiCount > 0 ? new Date(oldestTime).toLocaleDateString() : 'N/A',
+                newestCache: apiCount > 0 ? new Date(newestTime).toLocaleDateString() : 'N/A',
+                mostAccessedApi: mostAccessed.api || undefined,
+                cacheSize: apiCount,
+                maxCacheSize: this.MAX_CACHE_SIZE
             };
         } catch (error) {
             console.error('Error getting cache stats:', error);
@@ -254,7 +249,9 @@ export class ApiCacheManager {
                 frameworks: [],
                 diskUsage: '0 MB',
                 oldestCache: 'N/A',
-                newestCache: 'N/A'
+                newestCache: 'N/A',
+                cacheSize: 0,
+                maxCacheSize: this.MAX_CACHE_SIZE
             };
         }
     }
@@ -264,36 +261,19 @@ export class ApiCacheManager {
         
         try {
             const files = fs.readdirSync(this.cacheDir);
-            const maxAge = this.MAX_CACHE_AGE_DAYS * 24 * 60 * 60 * 1000;
             const now = Date.now();
 
-            // Remove expired files
-            for (const file of files) {
-                if (!file.endsWith('.json') || file === 'metadata.json') {
-                    continue;
-                }
+            // Only remove if we exceed the maximum cache size (no automatic expiration)
+            const apiFiles = files.filter(file => file.endsWith('.json') && file !== 'metadata.json');
 
-                const filePath = path.join(this.cacheDir, file);
-                const cachedData: CachedApiData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-                
-                if (now - cachedData.cachedAt > maxAge) {
-                    fs.unlinkSync(filePath);
-                    removedCount++;
-                }
-            }
-
-            // If still too many files, remove least accessed ones
-            const remainingFiles = fs.readdirSync(this.cacheDir)
-                .filter(file => file.endsWith('.json') && file !== 'metadata.json');
-
-            if (remainingFiles.length > this.MAX_CACHE_SIZE) {
-                const filesWithStats = remainingFiles.map(file => {
+            if (apiFiles.length > this.MAX_CACHE_SIZE) {
+                const filesWithStats = apiFiles.map(file => {
                     const filePath = path.join(this.cacheDir, file);
                     const cachedData: CachedApiData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
                     return { file, ...cachedData };
                 });
 
-                // Sort by access count (ascending) and last accessed time
+                // Sort by access count (ascending) and last accessed time (least accessed first)
                 filesWithStats.sort((a, b) => {
                     if (a.accessCount !== b.accessCount) {
                         return a.accessCount - b.accessCount;
@@ -301,7 +281,7 @@ export class ApiCacheManager {
                     return a.lastAccessed - b.lastAccessed;
                 });
 
-                const filesToRemove = filesWithStats.slice(0, remainingFiles.length - this.MAX_CACHE_SIZE);
+                const filesToRemove = filesWithStats.slice(0, apiFiles.length - this.MAX_CACHE_SIZE);
                 for (const fileData of filesToRemove) {
                     fs.unlinkSync(path.join(this.cacheDir, fileData.file));
                     removedCount++;
@@ -314,7 +294,7 @@ export class ApiCacheManager {
             metadata.lastCleanup = now;
             this.saveMetadata(metadata);
 
-            console.log(`🧹 Cleaned up ${removedCount} cached APIs`);
+            console.log(`🧹 Cleaned up ${removedCount} least-used cached APIs (size management)`);
             return removedCount;
         } catch (error) {
             console.error('Error cleaning up cache:', error);
@@ -340,9 +320,33 @@ export class ApiCacheManager {
                 frameworks: []
             });
 
-            console.log('🗑️ Cache cleared successfully');
+            console.log('🗑️ Persistent cache cleared successfully');
         } catch (error) {
             console.error('Error clearing cache:', error);
+        }
+    }
+
+    async initializeCache(): Promise<void> {
+        try {
+            this.ensureCacheDirectory();
+            const stats = await this.getCacheStats();
+            console.log(`📚 Persistent API cache initialized: ${stats.totalApis} APIs (${stats.diskUsage})`);
+            
+            if (stats.totalApis > 0) {
+                console.log(`💾 Long-term cache contains APIs from: ${stats.frameworks.join(', ')}`);
+            }
+        } catch (error) {
+            console.error('Error initializing cache:', error);
+        }
+    }
+
+    async resetAllCacheData(): Promise<void> {
+        try {
+            await this.clearCache();
+            console.log('🔄 All API cache long-term memory has been reset');
+        } catch (error) {
+            console.error('Error resetting cache data:', error);
+            throw error;
         }
     }
 }

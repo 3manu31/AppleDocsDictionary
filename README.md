@@ -1,22 +1,22 @@
 # Apple Docs Dictionary Extension
 
-**Enhanced RAG (Retrieval-Augmented Generation) extension for Apple API documentation with intelligent caching and deprecation detection.**
+**Enhanced RAG (Retrieval-Augmented Generation) extension for Apple API documentation with persistent offline caching and deprecation detection.**
 
 ## 🚀 Features
 
 ### Core Capabilities
 - **Intelligent API Mapping**: Automatically expands API searches across 30+ Apple frameworks
 - **Real-time Documentation**: Scrapes comprehensive Apple developer documentation
-- **Smart Caching**: Offline storage for previously fetched APIs for instant access
+- **Persistent Offline Cache**: Long-term storage that survives VS Code restarts and Mac reboots
 - **Deprecation Detection**: Active monitoring and prevention of deprecated API usage
 - **VS Code Chat Integration**: Use `@apple-docs` for intelligent assistance
 
-### 📚 Offline Cache System (NEW in v0.0.2)
-- **Smart Caching**: Automatically caches fetched APIs for future use
+### � Persistent Cache System (NEW in v0.0.3)
+- **Long-term Memory**: Cache persists across VS Code sessions, restarts, and Mac reboots
+- **No Automatic Expiration**: APIs stay cached until manually reset by user
 - **Instant Retrieval**: Previously searched APIs load instantly from local storage
-- **Cache Statistics**: Monitor cache performance and storage usage
-- **Automatic Cleanup**: Removes expired cache entries to maintain performance
-- **Framework Organization**: APIs organized by Apple framework for efficient access
+- **Smart Management**: Automatic size management (keeps 5000 most-used APIs)
+- **User Control**: Reset cache only when you choose to do so
 
 ## 🎯 Usage
 
@@ -31,41 +31,63 @@
 - **Apple Docs: Search Documentation** - Search Apple documentation
 - **Apple Docs: Enhance with Intelligent RAG** - Get comprehensive API context  
 - **Apple Docs: Scan for Deprecated APIs** - Check code for deprecated APIs
-- **Apple Docs: View Cache Statistics** - Monitor cache performance
-- **Apple Docs: Clear API Cache** - Reset cached documentation
+- **Apple Docs: View Cache Statistics** - Monitor persistent cache performance
+- **Apple Docs: Clear API Cache** - Clear cache but keep system active
+- **Apple Docs: Reset All Cache Long-term Memory** - Completely reset persistent storage
 
-### How the Cache Works
-1. **First Request**: Extension fetches API documentation from Apple's website
-2. **Automatic Caching**: Documentation is stored locally with metadata
-3. **Subsequent Requests**: APIs load instantly from cache if available
-4. **Smart Fallback**: If not cached or expired, fetches from web automatically
-5. **Performance Tracking**: Shows cache hits vs. web fetches in chat responses
+### How Persistent Cache Works
+1. **First Request**: Extension fetches API documentation from Apple's website and stores permanently
+2. **Permanent Storage**: Documentation saved to VS Code's global storage (survives restarts)
+3. **Instant Access**: All subsequent requests load immediately from persistent cache
+4. **Cross-Session**: Works offline and survives VS Code restarts, Mac reboots, updates
+5. **User Control**: Only resets when you explicitly choose to reset long-term memory
 
 ## 📊 Cache Features
 
-### Intelligent Storage
-- **Structured Data**: APIs stored with complete documentation, methods, properties
-- **Metadata Tracking**: Access counts, timestamps, and framework organization
-- **Automatic Expiry**: 7-day cache lifetime to ensure fresh documentation
-- **Size Management**: Automatic cleanup when cache exceeds 1000 entries
+### True Persistence
+- **Survives Restarts**: Cache works after closing/reopening VS Code
+- **Survives Reboots**: Cache persists through Mac restarts and updates
+- **No Expiration**: APIs remain cached indefinitely until user resets
+- **Large Capacity**: Stores up to 5,000 APIs with intelligent cleanup
+- **Framework Organization**: APIs organized by Apple framework for efficient access
 
 ### Performance Benefits
-- **Instant Access**: Cached APIs load in milliseconds instead of seconds
-- **Reduced Network**: Fewer HTTP requests to Apple's servers
-- **Offline Capability**: Previously searched APIs work without internet
-- **Better UX**: Faster response times in VS Code Chat
+- **Zero Network Delay**: Cached APIs load instantly without internet
+- **Offline Capability**: Full functionality without internet connection
+- **Accumulated Knowledge**: Cache grows smarter over time with usage
+- **Better UX**: Consistent performance regardless of network conditions
 
 ## 🔧 Installation
 
 ### Local Installation
 ```bash
-code --install-extension AppleDocsDictionary-0.0.2.vsix
+code --install-extension AppleDocsDictionary-0.0.3.vsix
 ```
 
 ### Manual Installation
 1. Open VS Code Extensions
 2. Click "..." → "Install from VSIX..."
-3. Select `AppleDocsDictionary-0.0.2.vsix`
+3. Select `AppleDocsDictionary-0.0.3.vsix`
+
+## 🚨 Cache Management
+
+The extension provides full control over persistent cache:
+
+### View Cache Statistics
+- Monitor cache size and performance
+- See frameworks cached and disk usage
+- Track most accessed APIs
+- View cache health across sessions
+
+### Reset Options
+- **Clear API Cache**: Removes current cache but keeps system active
+- **Reset All Cache Long-term Memory**: Completely resets persistent storage
+- **Size Cleanup**: Removes least-used APIs when cache is full
+
+### Configuration
+- `persistentCache`: Enable/disable persistent storage (default: true)
+- `maxCacheSize`: Maximum APIs to store (default: 5000)
+- `cacheDocumentation`: Enable local caching (default: true)
 
 ## 🚨 Deprecation Detection
 
@@ -75,13 +97,13 @@ The extension actively prevents deprecated API usage by:
 - **Modern Alternatives**: Suggests current API replacements
 - **Migration Guidance**: Provides specific upgrade instructions
 
-## ⚡ Cache Performance
+## ⚡ Performance Improvements
 
-Monitor your cache performance:
-- View cache statistics via command palette
-- See cache hits vs. web fetches in chat responses
-- Manage cache size and cleanup automatically
-- Track most accessed APIs for optimization
+v0.0.3 delivers significant performance gains:
+- **Instant API Access**: Previously searched APIs load in milliseconds
+- **Offline First**: Works without internet for cached APIs
+- **Persistent Intelligence**: Cache accumulates knowledge over time
+- **Zero Re-fetch**: Never downloads the same API documentation twice
 
 ## 🛠 Development
 
@@ -104,4 +126,4 @@ UIKit, SwiftUI, Foundation, CoreData, AVFoundation, MapKit, WebKit, Metal, ARKit
 
 ---
 
-**v0.0.2**: Added intelligent offline caching system for faster API access and improved performance.
+**v0.0.3**: Persistent cache that survives restarts - your API knowledge builds up over time and never disappears!

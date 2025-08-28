@@ -2,7 +2,7 @@
   "name": "AppleDocsDictionary",
   "displayName": "Apple Docs RAG",
   "description": "RAG extension for Apple API documentation to enhance Copilot responses",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "engines": {
     "vscode": "^1.103.0"
   },
@@ -47,6 +47,11 @@
         "command": "apple-docs-rag.clearCache",
         "title": "Clear API Cache",
         "category": "Apple Docs"
+      },
+      {
+        "command": "apple-docs-rag.resetLongTermCache",
+        "title": "Reset All Cache Long-term Memory",
+        "category": "Apple Docs"
       }
     ],
     "configuration": {
@@ -74,6 +79,16 @@
           "type": "boolean",
           "default": true,
           "description": "Cache documentation locally for faster access"
+        },
+        "appleDocsRag.persistentCache": {
+          "type": "boolean",
+          "default": true,
+          "description": "Keep API cache across VS Code sessions and restarts (recommended for performance)"
+        },
+        "appleDocsRag.maxCacheSize": {
+          "type": "number",
+          "default": 5000,
+          "description": "Maximum number of APIs to store in long-term cache"
         }
       }
     },

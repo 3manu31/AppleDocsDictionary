@@ -23,7 +23,12 @@ export function activate(context: vscode.ExtensionContext) {
 	contextProvider = new AppleDocsContextProvider();
 	cacheManager = new ApiCacheManager(context);
 	enhancedContextProvider = new EnhancedContextProvider(cacheManager);
-	deprecatedApiDetector = new DeprecatedApiDetector();	// Register commands
+	deprecatedApiDetector = new DeprecatedApiDetector();
+
+	// Initialize persistent cache on startup
+	cacheManager.initializeCache();
+
+	// Register commands
 	registerCommands(context);
 
 	// Register chat participant
@@ -194,35 +199,42 @@ function registerCommands(context: vscode.ExtensionContext) {
 	const viewCacheStatsCommand = vscode.commands.registerCommand('apple-docs-rag.viewCacheStats', async () => {
 		const stats = await cacheManager.getCacheStats();
 		
-		const statsMessage = `📊 API Cache Statistics:
-• Total APIs: ${stats.totalApis}
-• Frameworks: ${stats.frameworks.join(', ')}
-• Disk Usage: ${stats.diskUsage}
-• Oldest Cache: ${stats.oldestCache}
-• Newest Cache: ${stats.newestCache}
-• Most Accessed: ${stats.mostAccessedApi || 'None'}`;
+		const statsMessage = `📊 **Persistent API Cache Statistics:**
 
-		vscode.window.showInformationMessage(statsMessage, 'Clear Cache', 'Cleanup Cache')
+💾 **Long-term Memory:** ${stats.totalApis}/${stats.maxCacheSize} APIs stored
+📁 **Frameworks:** ${stats.frameworks.join(', ') || 'None'}
+💿 **Disk Usage:** ${stats.diskUsage}
+📅 **Oldest Cache:** ${stats.oldestCache}
+📅 **Newest Cache:** ${stats.newestCache}
+⭐ **Most Accessed:** ${stats.mostAccessedApi || 'None'}
+
+This cache persists across VS Code sessions and Mac restarts.`;
+
+		vscode.window.showInformationMessage(statsMessage, 'Reset All Cache Memory', 'Size Cleanup')
 			.then(async (selection) => {
-				if (selection === 'Clear Cache') {
+				if (selection === 'Reset All Cache Memory') {
 					const confirm = await vscode.window.showWarningMessage(
-						'Are you sure you want to clear all cached APIs?',
-						'Yes', 'No'
+						'⚠️ This will permanently delete all cached Apple API documentation and reset the long-term memory. Are you sure?',
+						'Reset Everything', 'Cancel'
 					);
-					if (confirm === 'Yes') {
-						await cacheManager.clearCache();
-						vscode.window.showInformationMessage('✅ Cache cleared successfully');
+					if (confirm === 'Reset Everything') {
+						await cacheManager.resetAllCacheData();
+						vscode.window.showInformationMessage('🔄 All API cache long-term memory has been reset');
 					}
-				} else if (selection === 'Cleanup Cache') {
+				} else if (selection === 'Size Cleanup') {
 					const removed = await cacheManager.cleanupCache();
-					vscode.window.showInformationMessage(`🧹 Cleaned up ${removed} expired cache entries`);
+					if (removed > 0) {
+						vscode.window.showInformationMessage(`🧹 Cleaned up ${removed} least-used cache entries`);
+					} else {
+						vscode.window.showInformationMessage('✅ Cache size is optimal, no cleanup needed');
+					}
 				}
 			});
 	});
 
 	const clearCacheCommand = vscode.commands.registerCommand('apple-docs-rag.clearCache', async () => {
 		const confirm = await vscode.window.showWarningMessage(
-			'This will clear all cached Apple API documentation. Are you sure?',
+			'⚠️ This will clear all cached Apple API documentation but keep the cache system active. Are you sure?',
 			'Clear Cache', 'Cancel'
 		);
 		
@@ -232,7 +244,27 @@ function registerCommands(context: vscode.ExtensionContext) {
 		}
 	});
 
-	context.subscriptions.push(viewCacheStatsCommand, clearCacheCommand);
+	const resetLongTermCacheCommand = vscode.commands.registerCommand('apple-docs-rag.resetLongTermCache', async () => {
+		const confirm = await vscode.window.showWarningMessage(
+			'🔄 This will permanently reset ALL cached Apple API documentation and long-term memory. This action cannot be undone. Are you sure?',
+			'Reset All Long-term Memory', 'Cancel'
+		);
+		
+		if (confirm === 'Reset All Long-term Memory') {
+			try {
+				await cacheManager.resetAllCacheData();
+				vscode.window.showInformationMessage('🔄 All API cache long-term memory has been completely reset');
+			} catch (error) {
+				vscode.window.showErrorMessage(`❌ Error resetting cache: ${error}`);
+			}
+		}
+	});
+
+	context.subscriptions.push(
+		viewCacheStatsCommand, 
+		clearCacheCommand, 
+		resetLongTermCacheCommand
+	);
 }
 
 function registerChatParticipant(context: vscode.ExtensionContext) {
@@ -317,7 +349,7 @@ function formatChatResponse(ragContext: any): string {
 	
 	// Show cache performance stats
 	if (cacheStats) {
-		response += `⚡ **Cache Performance**: ${cacheStats.fromCache} from cache, ${cacheStats.fromWeb} from web\n\n`;
+		response += `⚡ **Cache Performance**: ${cacheStats.fromCache} from persistent cache, ${cacheStats.fromWeb} from web\n\n`;
 	}
 	
 	// Strong deprecation warning if any deprecated APIs found
