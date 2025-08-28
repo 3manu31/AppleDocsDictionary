@@ -4,22 +4,26 @@ import * as vscode from 'vscode';
 import { AppleDocsSearcher } from './appleDocsSearcher';
 import { AppleDocsContextProvider } from './contextProvider';
 import { EnhancedContextProvider } from './enhancedContextProvider';
+import { DeprecatedApiDetector } from './deprecatedApiDetector';
+import { ApiCacheManager } from './apiCacheManager';
 
 let docsSearcher: AppleDocsSearcher;
 let contextProvider: AppleDocsContextProvider;
 let enhancedContextProvider: EnhancedContextProvider;
+let deprecatedApiDetector: DeprecatedApiDetector;
+let cacheManager: ApiCacheManager;
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
 	console.log('🍎 Apple Docs RAG Extension is now active!');
 
-	// Initialize services
+	// Initialize components
 	docsSearcher = new AppleDocsSearcher();
 	contextProvider = new AppleDocsContextProvider();
-	enhancedContextProvider = new EnhancedContextProvider();
-
-	// Register commands
+	cacheManager = new ApiCacheManager(context);
+	enhancedContextProvider = new EnhancedContextProvider(cacheManager);
+	deprecatedApiDetector = new DeprecatedApiDetector();	// Register commands
 	registerCommands(context);
 
 	// Register chat participant
@@ -108,6 +112,26 @@ function registerCommands(context: vscode.ExtensionContext) {
 		const selectedText = editor.document.getText(editor.selection) || 'Improve this code';
 		const codeContext = editor.document.getText();
 
+		// Check for deprecated APIs first
+		const deprecatedDetections = deprecatedApiDetector.detectDeprecatedApis(codeContext);
+		if (deprecatedDetections.length > 0) {
+			const action = await vscode.window.showWarningMessage(
+				`⚠️ Found ${deprecatedDetections.length} deprecated API(s) in your code!`,
+				'Show Deprecation Report',
+				'Continue Anyway'
+			);
+			
+			if (action === 'Show Deprecation Report') {
+				const report = deprecatedApiDetector.generateDeprecationReport(deprecatedDetections);
+				const doc = await vscode.workspace.openTextDocument({
+					content: report,
+					language: 'markdown'
+				});
+				await vscode.window.showTextDocument(doc);
+				return;
+			}
+		}
+
 		// Show progress while processing
 		await vscode.window.withProgress({
 			location: vscode.ProgressLocation.Notification,
@@ -138,18 +162,104 @@ function registerCommands(context: vscode.ExtensionContext) {
 		});
 	});
 
-	context.subscriptions.push(searchDocsCommand, indexFrameworkCommand, enhanceWithDocsCommand, enhancedRagCommand);
+	// Command to scan for deprecated APIs
+	const scanDeprecatedCommand = vscode.commands.registerCommand('apple-docs-rag.scanDeprecatedApis', async () => {
+		const editor = vscode.window.activeTextEditor;
+		if (!editor) {
+			vscode.window.showErrorMessage('No active editor found');
+			return;
+		}
+
+		const code = editor.document.getText();
+		const detections = deprecatedApiDetector.detectDeprecatedApis(code);
+		
+		if (detections.length === 0) {
+			vscode.window.showInformationMessage('✅ No deprecated APIs found in your code!');
+			return;
+		}
+
+		const report = deprecatedApiDetector.generateDeprecationReport(detections);
+		const doc = await vscode.workspace.openTextDocument({
+			content: report,
+			language: 'markdown'
+		});
+		await vscode.window.showTextDocument(doc);
+		
+		vscode.window.showWarningMessage(`⚠️ Found ${detections.length} deprecated API(s). Check the report for migration guidance.`);
+	});
+
+	context.subscriptions.push(searchDocsCommand, indexFrameworkCommand, enhanceWithDocsCommand, enhancedRagCommand, scanDeprecatedCommand);
+
+	// Cache management commands
+	const viewCacheStatsCommand = vscode.commands.registerCommand('apple-docs-rag.viewCacheStats', async () => {
+		const stats = await cacheManager.getCacheStats();
+		
+		const statsMessage = `📊 API Cache Statistics:
+• Total APIs: ${stats.totalApis}
+• Frameworks: ${stats.frameworks.join(', ')}
+• Disk Usage: ${stats.diskUsage}
+• Oldest Cache: ${stats.oldestCache}
+• Newest Cache: ${stats.newestCache}
+• Most Accessed: ${stats.mostAccessedApi || 'None'}`;
+
+		vscode.window.showInformationMessage(statsMessage, 'Clear Cache', 'Cleanup Cache')
+			.then(async (selection) => {
+				if (selection === 'Clear Cache') {
+					const confirm = await vscode.window.showWarningMessage(
+						'Are you sure you want to clear all cached APIs?',
+						'Yes', 'No'
+					);
+					if (confirm === 'Yes') {
+						await cacheManager.clearCache();
+						vscode.window.showInformationMessage('✅ Cache cleared successfully');
+					}
+				} else if (selection === 'Cleanup Cache') {
+					const removed = await cacheManager.cleanupCache();
+					vscode.window.showInformationMessage(`🧹 Cleaned up ${removed} expired cache entries`);
+				}
+			});
+	});
+
+	const clearCacheCommand = vscode.commands.registerCommand('apple-docs-rag.clearCache', async () => {
+		const confirm = await vscode.window.showWarningMessage(
+			'This will clear all cached Apple API documentation. Are you sure?',
+			'Clear Cache', 'Cancel'
+		);
+		
+		if (confirm === 'Clear Cache') {
+			await cacheManager.clearCache();
+			vscode.window.showInformationMessage('✅ API cache cleared successfully');
+		}
+	});
+
+	context.subscriptions.push(viewCacheStatsCommand, clearCacheCommand);
 }
 
 function registerChatParticipant(context: vscode.ExtensionContext) {
 	// Create chat participant for Apple docs with enhanced RAG
 	const chatParticipant = vscode.chat.createChatParticipant('apple-docs', async (request, chatContext, stream, token) => {
-		stream.progress('🧠 Analyzing your request and expanding API search...');
+		stream.progress('🧠 Analyzing your request and scanning for deprecated APIs...');
 		
 		try {
 			// Get code context from active editor
 			const editor = vscode.window.activeTextEditor;
 			const codeContext = editor?.document.getText();
+			
+			// First, check for deprecated APIs in the current code
+			if (codeContext) {
+				const deprecatedDetections = deprecatedApiDetector.detectDeprecatedApis(codeContext);
+				if (deprecatedDetections.length > 0) {
+					stream.markdown(`🚨 **DEPRECATED API WARNING**: Found ${deprecatedDetections.length} deprecated API(s) in your current code!\n\n`);
+					
+					deprecatedDetections.forEach((detection, index) => {
+						stream.markdown(`❌ **${detection.apiName}** (Line ${detection.line})\n`);
+						stream.markdown(`**Issue**: ${detection.reason}\n`);
+						stream.markdown(`✅ **Use instead**: ${detection.modernAlternative}\n\n`);
+					});
+					
+					stream.markdown(`---\n\n`);
+				}
+			}
 			
 			// Use intelligent RAG enhancement
 			const ragContext = await enhancedContextProvider.enhancePromptWithIntelligentRAG(
@@ -185,8 +295,8 @@ function registerChatParticipant(context: vscode.ExtensionContext) {
 					label: '🔄 Alternative APIs'
 				},
 				{
-					prompt: 'Check for deprecated methods',
-					label: '⚠️ Check Deprecation'
+					prompt: 'Scan my code for deprecated APIs',
+					label: '🚨 Scan Deprecated APIs'
 				}
 			];
 		}
@@ -196,25 +306,54 @@ function registerChatParticipant(context: vscode.ExtensionContext) {
 }
 
 function formatChatResponse(ragContext: any): string {
-	const { detectedIntent, expandedApis, deepDocumentation } = ragContext;
+	const { detectedIntent, expandedApis, deepDocumentation, cacheStats } = ragContext;
+	
+	// Separate deprecated and current APIs
+	const deprecatedApis = deepDocumentation.filter((doc: any) => doc.isDeprecated);
+	const currentApis = deepDocumentation.filter((doc: any) => !doc.isDeprecated);
 	
 	let response = `🎯 **Intent**: ${detectedIntent}\n`;
-	response += `📚 **Analyzed APIs**: ${expandedApis.join(', ')}\n\n`;
+	response += `📚 **Analyzed APIs**: ${expandedApis.join(', ')}\n`;
 	
-	response += `## 📖 Comprehensive Documentation (${deepDocumentation.length} APIs)\n\n`;
-	
-	for (const doc of deepDocumentation.slice(0, 5)) { // Limit for chat readability
-		const deprecationStatus = doc.isDeprecated ? '⚠️ **DEPRECATED**' : '✅ **Current**';
-		response += `### ${doc.title} (${doc.framework})\n`;
-		response += `${deprecationStatus} | ${doc.availability}\n\n`;
-		response += `${doc.description}\n\n`;
-		
-		if (doc.codeExamples.length > 0) {
-			response += `**Example:**\n\`\`\`swift\n${doc.codeExamples[0].substring(0, 200)}...\n\`\`\`\n\n`;
-		}
-		
-		response += `[📖 Documentation](${doc.url})\n\n---\n\n`;
+	// Show cache performance stats
+	if (cacheStats) {
+		response += `⚡ **Cache Performance**: ${cacheStats.fromCache} from cache, ${cacheStats.fromWeb} from web\n\n`;
 	}
+	
+	// Strong deprecation warning if any deprecated APIs found
+	if (deprecatedApis.length > 0) {
+		response += `🚫 **DEPRECATED APIs DETECTED - DO NOT USE:**\n\n`;
+		for (const doc of deprecatedApis) {
+			response += `❌ **${doc.title}** (${doc.framework})\n`;
+			response += `⚠️ **DEPRECATED**: ${doc.deprecationInfo}\n`;
+			response += `🔄 **Use modern alternatives instead**\n\n`;
+		}
+		response += `---\n\n`;
+	}
+	
+	// Current APIs section
+	if (currentApis.length > 0) {
+		response += `## ✅ Recommended Current APIs (${currentApis.length} APIs)\n\n`;
+		
+		for (const doc of currentApis.slice(0, 5)) { // Focus on current APIs
+			response += `### ${doc.title} (${doc.framework}) ✅\n`;
+			response += `**Current API** | ${doc.availability}\n\n`;
+			response += `${doc.description}\n\n`;
+			
+			if (doc.codeExamples.length > 0) {
+				response += `**Example:**\n\`\`\`swift\n${doc.codeExamples[0].substring(0, 200)}...\n\`\`\`\n\n`;
+			}
+			
+			response += `[📖 Documentation](${doc.url})\n\n---\n\n`;
+		}
+	}
+	
+	// Add strong guidance about avoiding deprecated APIs
+	response += `💡 **Important Reminders:**\n`;
+	response += `- ✅ Use only current APIs from the recommendations above\n`;
+	response += `- 🚫 Avoid all deprecated APIs completely\n`;
+	response += `- 🔄 Replace any deprecated code with modern alternatives\n`;
+	response += `- 📱 Check availability requirements for your target iOS version\n`;
 	
 	return response;
 }

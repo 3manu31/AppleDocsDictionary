@@ -2,7 +2,7 @@
   "name": "AppleDocsDictionary",
   "displayName": "Apple Docs RAG",
   "description": "RAG extension for Apple API documentation to enhance Copilot responses",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.103.0"
   },
@@ -31,6 +31,21 @@
       {
         "command": "apple-docs-rag.enhanceWithIntelligentRAG",
         "title": "Enhance with Intelligent RAG",
+        "category": "Apple Docs"
+      },
+      {
+        "command": "apple-docs-rag.scanDeprecatedApis",
+        "title": "Scan for Deprecated APIs",
+        "category": "Apple Docs"
+      },
+      {
+        "command": "apple-docs-rag.viewCacheStats",
+        "title": "View Cache Statistics",
+        "category": "Apple Docs"
+      },
+      {
+        "command": "apple-docs-rag.clearCache",
+        "title": "Clear API Cache",
         "category": "Apple Docs"
       }
     ],

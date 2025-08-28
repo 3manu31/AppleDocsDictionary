@@ -1,5 +1,6 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import { ApiCacheManager, CachedApiData } from './apiCacheManager';
 
 export interface DeepDocResult {
     title: string;
@@ -14,6 +15,7 @@ export interface DeepDocResult {
     relatedApis: string[];
     properties: PropertyInfo[];
     methods: MethodInfo[];
+    fromCache?: boolean;
 }
 
 interface PropertyInfo {
@@ -41,23 +43,62 @@ interface ParameterInfo {
 export class DeepDocsScraper {
     private baseUrl = 'https://developer.apple.com';
     private cache = new Map<string, DeepDocResult>();
+    private cacheManager: ApiCacheManager;
+    
+    constructor(cacheManager: ApiCacheManager) {
+        this.cacheManager = cacheManager;
+    }
     
     async scrapeApiInDepth(apiName: string, framework?: string): Promise<DeepDocResult[]> {
         console.log(`🔍 Deep scraping: ${apiName} ${framework ? `(${framework})` : ''}`);
         
         const results: DeepDocResult[] = [];
         
-        // Step 1: Find the main API page
+        // Step 1: Check cache first
+        if (framework) {
+            const cachedResult = await this.getCachedResult(apiName, framework);
+            if (cachedResult) {
+                console.log(`📚 Found ${apiName} in cache`);
+                results.push(cachedResult);
+                
+                // Still look for related APIs from cache
+                const relatedCached = await this.searchRelatedInCache(cachedResult.relatedApis, framework);
+                results.push(...relatedCached);
+                
+                // If we have good cached results, return them
+                if (results.length > 0) {
+                    return results;
+                }
+            }
+        }
+        
+        // Step 2: If not in cache, scrape from web
         const mainDoc = await this.findMainApiPage(apiName, framework);
         if (mainDoc) {
             results.push(mainDoc);
             
-            // Step 2: Scrape related APIs mentioned on the main page
+            // Cache the main result
+            await this.cacheResult(mainDoc);
+            
+            // Step 3: Scrape related APIs mentioned on the main page
             const relatedApis = await this.scrapeRelatedApis(mainDoc.url);
             
-            // Step 3: Deep scrape each related API (limit to prevent infinite recursion)
+            // Step 4: Deep scrape each related API (limit to prevent infinite recursion)
             for (const relatedApi of relatedApis.slice(0, 10)) {
-                const relatedDoc = await this.scrapeApiPage(relatedApi);
+                // Check cache first for related APIs
+                let relatedDoc: DeepDocResult | null = null;
+                
+                if (framework) {
+                    relatedDoc = await this.getCachedResult(relatedApi, framework);
+                }
+                
+                if (!relatedDoc) {
+                    relatedDoc = await this.scrapeApiPage(relatedApi);
+                    if (relatedDoc) {
+                        await this.cacheResult(relatedDoc);
+                    }
+                }
+                
                 if (relatedDoc) {
                     results.push(relatedDoc);
                 }
@@ -247,6 +288,106 @@ export class DeepDocsScraper {
             'coreml': 'CoreML'
         };
         return mapping[framework.toLowerCase()] || framework;
+    }
+
+    // Cache management methods
+    private async getCachedResult(apiName: string, framework: string): Promise<DeepDocResult | null> {
+        try {
+            const cachedData = await this.cacheManager.getCachedApi(apiName, framework);
+            if (cachedData) {
+                return this.convertCachedToDeepDoc(cachedData);
+            }
+            return null;
+        } catch (error) {
+            console.error('Error retrieving from cache:', error);
+            return null;
+        }
+    }
+
+    private async searchRelatedInCache(relatedApis: string[], framework: string): Promise<DeepDocResult[]> {
+        const results: DeepDocResult[] = [];
+        
+        for (const apiName of relatedApis.slice(0, 5)) {
+            const cached = await this.getCachedResult(apiName, framework);
+            if (cached) {
+                results.push(cached);
+            }
+        }
+        
+        return results;
+    }
+
+    private async cacheResult(result: DeepDocResult): Promise<void> {
+        try {
+            const cacheData: Omit<CachedApiData, 'cachedAt' | 'lastAccessed' | 'accessCount'> = {
+                apiName: result.title,
+                framework: result.framework,
+                documentation: result.description,
+                properties: result.properties.map(p => `${p.name}: ${p.type}`),
+                methods: result.methods.map(m => `${m.name}(${m.parameters.map(p => p.name).join(', ')}): ${m.returnType}`),
+                examples: result.codeExamples,
+                relatedApis: result.relatedApis,
+                deprecationInfo: result.isDeprecated ? {
+                    isDeprecated: true,
+                    reason: result.deprecationInfo || 'This API is deprecated',
+                    alternative: 'Check Apple documentation for alternatives'
+                } : undefined
+            };
+
+            await this.cacheManager.cacheApi(cacheData);
+        } catch (error) {
+            console.error('Error caching result:', error);
+        }
+    }
+
+    private convertCachedToDeepDoc(cached: CachedApiData): DeepDocResult {
+        return {
+            title: cached.apiName,
+            framework: cached.framework,
+            type: 'class', // Default type for cached items
+            description: cached.documentation,
+            url: '#cached',
+            availability: 'Available',
+            isDeprecated: cached.deprecationInfo?.isDeprecated || false,
+            deprecationInfo: cached.deprecationInfo?.reason,
+            codeExamples: cached.examples,
+            relatedApis: cached.relatedApis,
+            properties: this.parsePropertiesFromCache(cached.properties),
+            methods: this.parseMethodsFromCache(cached.methods),
+            fromCache: true
+        };
+    }
+
+    private parsePropertiesFromCache(properties: string[]): PropertyInfo[] {
+        return properties.map(prop => {
+            const [name, type] = prop.split(': ');
+            return {
+                name: name || prop,
+                type: type || 'Unknown',
+                description: '',
+                isDeprecated: false
+            };
+        });
+    }
+
+    private parseMethodsFromCache(methods: string[]): MethodInfo[] {
+        return methods.map(method => {
+            const [signature, returnType] = method.split('): ');
+            const [name, params] = signature.split('(');
+            
+            return {
+                name: name || method,
+                signature: signature || method,
+                description: '',
+                parameters: params ? params.split(', ').map(p => ({
+                    name: p,
+                    type: 'Unknown',
+                    description: ''
+                })) : [],
+                returnType: returnType || 'Void',
+                isDeprecated: false
+            };
+        });
     }
     
     clearCache(): void {

@@ -1,124 +1,107 @@
-# Apple Docs RAG Extension
+# Apple Docs Dictionary Extension
 
-A VS Code extension that provides RAG (Retrieval-Augmented Generation) capabilities for Apple API documentation, designed to enhance GitHub Copilot's responses with accurate, up-to-date Apple API information.
+**Enhanced RAG (Retrieval-Augmented Generation) extension for Apple API documentation with intelligent caching and deprecation detection.**
 
-## Features
+## 🚀 Features
 
-### 🔍 Smart Documentation Search
-- Search Apple developer documentation in real-time
-- Framework-aware search (SwiftUI, UIKit, Foundation, Combine, etc.)
-- Automatic framework detection from your code
+### Core Capabilities
+- **Intelligent API Mapping**: Automatically expands API searches across 30+ Apple frameworks
+- **Real-time Documentation**: Scrapes comprehensive Apple developer documentation
+- **Smart Caching**: Offline storage for previously fetched APIs for instant access
+- **Deprecation Detection**: Active monitoring and prevention of deprecated API usage
+- **VS Code Chat Integration**: Use `@apple-docs` for intelligent assistance
 
-### 🤖 Chat Integration
-- Use `@apple-docs` in VS Code Chat to search Apple documentation
-- Get contextual API information with deprecation warnings
-- Receive suggestions for best practices and alternatives
+### 📚 Offline Cache System (NEW in v0.0.2)
+- **Smart Caching**: Automatically caches fetched APIs for future use
+- **Instant Retrieval**: Previously searched APIs load instantly from local storage
+- **Cache Statistics**: Monitor cache performance and storage usage
+- **Automatic Cleanup**: Removes expired cache entries to maintain performance
+- **Framework Organization**: APIs organized by Apple framework for efficient access
 
-### ⚡ Quick Actions
-- **Search Apple Docs**: Search for any API, class, or method
-- **Enhance with Docs**: Get relevant documentation for selected code
-- **Framework Indexing**: Index specific frameworks for faster searches
+## 🎯 Usage
 
-### 🎯 Smart Context Detection
-- Automatically detects which Apple frameworks you're using
-- Provides version compatibility information
-- Flags deprecated APIs and suggests alternatives
-- Includes proper import statements and availability checks
-
-## Usage
-
-### Chat Participant
+### Chat Integration
 ```
-@apple-docs How do I create a SwiftUI navigation view?
-@apple-docs UITableView best practices
-@apple-docs Combine publishers and subscribers
+@apple-docs How do I create a modern UIButton?
+@apple-docs Update this UIAlertView to UIAlertController
+@apple-docs What's the SwiftUI equivalent of UINavigationController?
 ```
 
 ### Commands
-- `Cmd+Shift+P` → "Search Apple Documentation"
-- `Cmd+Shift+P` → "Enhance with Docs" (with text selected)
-- `Cmd+Shift+P` → "Index Framework Documentation"
+- **Apple Docs: Search Documentation** - Search Apple documentation
+- **Apple Docs: Enhance with Intelligent RAG** - Get comprehensive API context  
+- **Apple Docs: Scan for Deprecated APIs** - Check code for deprecated APIs
+- **Apple Docs: View Cache Statistics** - Monitor cache performance
+- **Apple Docs: Clear API Cache** - Reset cached documentation
 
-### Configuration
-```json
-{
-  "appleDocsRag.enableAutoSearch": true,
-  "appleDocsRag.preferredFrameworks": [
-    "SwiftUI",
-    "UIKit", 
-    "Foundation",
-    "Combine"
-  ],
-  "appleDocsRag.cacheDocumentation": true
-}
+### How the Cache Works
+1. **First Request**: Extension fetches API documentation from Apple's website
+2. **Automatic Caching**: Documentation is stored locally with metadata
+3. **Subsequent Requests**: APIs load instantly from cache if available
+4. **Smart Fallback**: If not cached or expired, fetches from web automatically
+5. **Performance Tracking**: Shows cache hits vs. web fetches in chat responses
+
+## 📊 Cache Features
+
+### Intelligent Storage
+- **Structured Data**: APIs stored with complete documentation, methods, properties
+- **Metadata Tracking**: Access counts, timestamps, and framework organization
+- **Automatic Expiry**: 7-day cache lifetime to ensure fresh documentation
+- **Size Management**: Automatic cleanup when cache exceeds 1000 entries
+
+### Performance Benefits
+- **Instant Access**: Cached APIs load in milliseconds instead of seconds
+- **Reduced Network**: Fewer HTTP requests to Apple's servers
+- **Offline Capability**: Previously searched APIs work without internet
+- **Better UX**: Faster response times in VS Code Chat
+
+## 🔧 Installation
+
+### Local Installation
+```bash
+code --install-extension AppleDocsDictionary-0.0.2.vsix
 ```
 
-## Supported Frameworks
+### Manual Installation
+1. Open VS Code Extensions
+2. Click "..." → "Install from VSIX..."
+3. Select `AppleDocsDictionary-0.0.2.vsix`
 
-- **SwiftUI** - Modern declarative UI framework
-- **UIKit** - Traditional iOS UI framework
-- **Foundation** - Core functionality and data types
-- **Combine** - Reactive programming framework
-- **CoreData** - Data persistence framework
-- **AVFoundation** - Audio and video processing
-- **MapKit** - Maps and location services
-- **And many more...**
+## 🚨 Deprecation Detection
 
-## How It Works
+The extension actively prevents deprecated API usage by:
+- **Real-time Scanning**: Detects deprecated APIs in your current code
+- **Chat Warnings**: Shows deprecation alerts in `@apple-docs` responses
+- **Modern Alternatives**: Suggests current API replacements
+- **Migration Guidance**: Provides specific upgrade instructions
 
-1. **Code Analysis**: Automatically detects Apple frameworks in your code
-2. **Smart Search**: Searches relevant Apple documentation based on context
-3. **RAG Enhancement**: Provides enhanced context to GitHub Copilot
-4. **Real-time Results**: Fast, cached searches with up-to-date information
+## ⚡ Cache Performance
 
-## Installation
+Monitor your cache performance:
+- View cache statistics via command palette
+- See cache hits vs. web fetches in chat responses
+- Manage cache size and cleanup automatically
+- Track most accessed APIs for optimization
 
-1. Install from VS Code Marketplace (coming soon)
-2. Or build from source:
-   ```bash
-   git clone <repository>
-   cd apple-docs-rag
-   npm install
-   npm run compile
-   ```
+## 🛠 Development
 
-## Requirements
+To modify or rebuild:
+```bash
+npm install
+npm run compile
+npx @vscode/vsce package
+```
 
-- VS Code 1.103.0 or higher
-- Internet connection for documentation searches
-- Optional: GitHub Copilot for enhanced AI assistance
+## 📝 Requirements
 
-## Extension Settings
+- VS Code 1.90+
+- Internet access for initial API fetching
+- GitHub Copilot for chat features
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| `appleDocsRag.enableAutoSearch` | Automatically search for relevant docs | `true` |
-| `appleDocsRag.preferredFrameworks` | Frameworks to prioritize in searches | `["SwiftUI", "UIKit", "Foundation", "Combine"]` |
-| `appleDocsRag.cacheDocumentation` | Cache documentation for faster access | `true` |
+## 🔗 Supported Frameworks
 
-## Known Issues
-
-- Large documentation searches may take a few seconds
-- Some Apple documentation pages may require manual verification
-- Deprecated API detection is based on documentation text analysis
-
-## Contributing
-
-Contributions are welcome! Please read our contributing guidelines and submit pull requests.
-
-## License
-
-This extension is licensed under the MIT License.
-
-## Release Notes
-
-### 0.0.1
-- Initial release
-- Basic Apple documentation search
-- Chat participant integration
-- Framework detection
-- Deprecation warnings
+UIKit, SwiftUI, Foundation, CoreData, AVFoundation, MapKit, WebKit, Metal, ARKit, CoreML, GameplayKit, PencilKit, Combine, and more.
 
 ---
 
-**Enjoy enhanced Apple API development with RAG-powered documentation!**
+**v0.0.2**: Added intelligent offline caching system for faster API access and improved performance.

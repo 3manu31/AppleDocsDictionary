@@ -1,6 +1,7 @@
 import { AppleDocsSearcher } from './appleDocsSearcher';
 import { IntelligentApiMapper } from './intelligentApiMapper';
 import { DeepDocsScraper, DeepDocResult } from './deepDocsScraper';
+import { ApiCacheManager } from './apiCacheManager';
 
 export interface EnhancedRAGContext {
     originalPrompt: string;
@@ -9,12 +10,23 @@ export interface EnhancedRAGContext {
     deepDocumentation: DeepDocResult[];
     enhancedPrompt: string;
     cacheKey: string;
+    cacheStats: {
+        fromCache: number;
+        fromWeb: number;
+        totalApis: number;
+    };
 }
 
 export class EnhancedContextProvider {
     private apiMapper = new IntelligentApiMapper();
-    private deepScraper = new DeepDocsScraper();
+    private deepScraper: DeepDocsScraper;
     private contextCache = new Map<string, EnhancedRAGContext>();
+    private cacheManager: ApiCacheManager;
+    
+    constructor(cacheManager: ApiCacheManager) {
+        this.cacheManager = cacheManager;
+        this.deepScraper = new DeepDocsScraper(cacheManager);
+    }
     
     async enhancePromptWithIntelligentRAG(
         originalPrompt: string, 
@@ -63,19 +75,28 @@ export class EnhancedContextProvider {
             codeContext
         );
         
+        // Calculate cache statistics
+        const fromCache = deepDocumentation.filter(doc => doc.fromCache).length;
+        const fromWeb = deepDocumentation.length - fromCache;
+        
         const result: EnhancedRAGContext = {
             originalPrompt,
             detectedIntent,
             expandedApis,
             deepDocumentation,
             enhancedPrompt,
-            cacheKey
+            cacheKey,
+            cacheStats: {
+                fromCache,
+                fromWeb,
+                totalApis: deepDocumentation.length
+            }
         };
         
         // Cache the result
         this.contextCache.set(cacheKey, result);
         
-        console.log(`✅ RAG enhancement complete! Found ${deepDocumentation.length} relevant APIs`);
+        console.log(`✅ RAG enhancement complete! Found ${deepDocumentation.length} relevant APIs (${fromCache} from cache, ${fromWeb} from web)`);
         
         return result;
     }
@@ -117,18 +138,29 @@ export class EnhancedContextProvider {
             contextSections.push(`📝 **Current Code Context**:\n\`\`\`swift\n${truncatedContext}\n\`\`\``);
         }
         
-        // Add comprehensive API documentation
-        contextSections.push(`📚 **Relevant Apple API Documentation** (${documentation.length} APIs):`);
+        // Separate deprecated and current APIs
+        const deprecatedApis = documentation.filter(doc => doc.isDeprecated);
+        const currentApis = documentation.filter(doc => !doc.isDeprecated);
         
-        for (const doc of documentation.slice(0, 10)) { // Limit for prompt size
-            const deprecationWarning = doc.isDeprecated ? 
-                `⚠️ **DEPRECATED** - ${doc.deprecationInfo}` : 
-                '✅ **Current API**';
-            
+        // Add STRICT deprecation warnings
+        if (deprecatedApis.length > 0) {
+            contextSections.push(`🚫 **STRICTLY FORBIDDEN DEPRECATED APIs** - DO NOT USE THESE:
+${deprecatedApis.map(doc => `
+- **${doc.title}** (${doc.framework}) - ${doc.deprecationInfo}
+  ❌ BANNED: Do not include this API in any code suggestions
+  🔄 Use modern alternatives instead`).join('\n')}
+
+⚠️ **CRITICAL INSTRUCTION**: If the user's request would require any of the above deprecated APIs, you MUST suggest modern alternatives and explain why the deprecated API should be avoided.`);
+        }
+        
+        // Add current/preferred APIs
+        contextSections.push(`✅ **PREFERRED CURRENT APIs** - Use these instead (${currentApis.length} APIs):`);
+        
+        for (const doc of currentApis.slice(0, 8)) { // Focus on current APIs
             contextSections.push(`
-### ${doc.title} (${doc.framework})
+### ${doc.title} (${doc.framework}) ✅
 **Type**: ${doc.type} | **Availability**: ${doc.availability}
-${deprecationWarning}
+**Status**: Current and recommended
 
 **Description**: ${doc.description}
 
@@ -142,18 +174,24 @@ ${doc.methods.length > 0 ? `**Key Methods**: ${doc.methods.slice(0, 3).map(m => 
 `);
         }
         
-        // Add intelligent guidance based on intent
+        // Add enhanced guidance with deprecation focus
         const guidance = this.getIntentSpecificGuidance(intent);
-        contextSections.push(`💡 **Guidance**: ${guidance}`);
+        const deprecationGuidance = this.getDeprecationGuidance(deprecatedApis, currentApis);
+        contextSections.push(`💡 **Guidance**: ${guidance}\n\n${deprecationGuidance}`);
         
         const enhancedPrompt = `${originalPrompt}
 
 ---
-## 🤖 ENHANCED CONTEXT FOR COPILOT
+## 🤖 ENHANCED CONTEXT FOR COPILOT WITH DEPRECATION CONTROL
 ${contextSections.join('\n\n')}
 
 ---
-**Instructions**: Use this comprehensive Apple API documentation to provide accurate, up-to-date code solutions. Prefer non-deprecated APIs, include proper imports, and provide working code examples with the user's specific requirements.
+## 🚫 STRICT REQUIREMENTS:
+1. **NEVER suggest deprecated APIs** - Always use current alternatives
+2. **If deprecated APIs are mentioned in user's code**, suggest modern replacements
+3. **Include proper imports** for all suggested APIs
+4. **Add availability checks** when targeting older iOS versions
+5. **Prioritize current APIs** from the "PREFERRED CURRENT APIs" section above
 
 **Original Request**: ${originalPrompt}`;
         
@@ -171,6 +209,50 @@ ${contextSections.join('\n\n')}
         };
         
         return guidance[intent] || 'Provide clear, practical solutions with proper error handling.';
+    }
+    
+    private getDeprecationGuidance(deprecatedApis: DeepDocResult[], currentApis: DeepDocResult[]): string {
+        if (deprecatedApis.length === 0) {
+            return `🎉 **Excellent!** All suggested APIs are current and up-to-date. Use these confidently in your implementation.`;
+        }
+        
+        const migrationMap = this.createDeprecationMigrationMap();
+        let guidance = `🚨 **DEPRECATION ALERT**: Found ${deprecatedApis.length} deprecated API(s). Here are the modern alternatives:\n\n`;
+        
+        for (const deprecated of deprecatedApis) {
+            const alternatives = migrationMap.get(deprecated.title) || 
+                currentApis.filter(api => api.framework === deprecated.framework).slice(0, 2);
+            
+            guidance += `❌ **${deprecated.title}** → `;
+            if (alternatives.length > 0) {
+                guidance += `✅ **${alternatives.map(alt => alt.title).join('** or **')}**\n`;
+            } else {
+                guidance += `✅ Check Apple's documentation for current replacement\n`;
+            }
+        }
+        
+        guidance += `\n🔄 **Migration Strategy**: Always replace deprecated APIs with their modern counterparts to ensure future compatibility and access to latest features.`;
+        
+        return guidance;
+    }
+    
+    private createDeprecationMigrationMap(): Map<string, DeepDocResult[]> {
+        // Common deprecated API → modern API mappings
+        // This could be expanded with more comprehensive mappings
+        return new Map([
+            // Navigation
+            ['NavigationView', []], // Will suggest NavigationStack from current APIs
+            ['UINavigationController', []], // Will suggest SwiftUI alternatives
+            
+            // UI Components
+            ['UITableViewController', []], // Will suggest modern table implementations
+            ['UICollectionViewController', []], // Will suggest modern collection implementations
+            
+            // Networking
+            ['NSURLConnection', []], // Will suggest URLSession
+            
+            // This map can be expanded as we discover more deprecated APIs
+        ]);
     }
     
     private generateCacheKey(prompt: string, codeContext?: string): string {
